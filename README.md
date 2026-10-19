@@ -1,6 +1,6 @@
 # leadflow
 
-A workflow automation backend that turns inbound lead webhooks into prioritized, AI-drafted follow-ups. A lead arrives, gets validated and stored, scored by rule, given a draft outreach email written by Claude, and announced in Slack. Every step's execution state is recorded and queryable.
+A workflow automation backend that turns inbound lead webhooks into prioritized, AI-drafted follow-ups. A lead arrives, gets validated and stored, tagged by priority, given a draft outreach email written by Claude, and announced in Slack. Every step's execution state is recorded and queryable.
 
 **Live:** https://leadflow-ejqy.onrender.com/docs
 
@@ -12,7 +12,7 @@ The service runs on Render's free tier and sleeps after about 15 minutes of inac
 
 A small sales team gets leads from a website form. Someone has to notice each one, decide whether it matters, write a first email, and tell the team. At ten leads a week that is a minor chore. At a hundred it is a part-time job, and the leads that arrive on a Friday evening sit untouched until Monday.
 
-leadflow does the mechanical parts automatically and leaves the judgment call to a human. It scores the lead, drafts the email, and posts to Slack within about a second of the form submission. A person reads the draft, edits it, and sends it.
+leadflow does the mechanical parts automatically and leaves the judgment call to a human. It tags the lead's priority, drafts the email, and posts to Slack within about a second of the form submission. A person reads the draft, edits it, and sends it.
 
 The drafts are deliberately not sent automatically. See [Limitations](#limitations).
 
@@ -41,7 +41,7 @@ POST /leads
 │  an ordered list of steps                   │
 │                                             │
 │   1. log_lead        record receipt         │
-│   2. tag_priority    rule-based scoring     │
+│   2. tag_priority    company or free mail   │
 │   3. draft_outreach  Claude writes email    │
 │   4. notify_slack    post to #leads         │
 │                                             │
@@ -68,7 +68,7 @@ def step_name(lead: Lead, db: Session) -> None:
 
 Two arguments, no return value, raises on failure. The orchestrator does not know what any step does. It records which step is running, calls it, and catches anything that comes back up.
 
-The consequence: adding an integration means writing a function and appending one tuple to a list. `run_workflow` has not changed since it was written, across three subsequent integrations (rule-based scoring, an LLM call, an HTTP webhook).
+The consequence: adding an integration means writing a function and appending one tuple to a list. `run_workflow` has not changed since it was written, across three subsequent integrations (a priority rule, an LLM call, an HTTP webhook).
 
 ### Failure handling
 
@@ -119,12 +119,14 @@ Response:
   "name": "Priya Raman",
   "email": "priya@northwind.io",
   "company": "Northwind Systems",
-  "status": "warm",
+  "status": "hot",
   "created_at": "2026-08-09T21:42:53.563767"
 }
 ```
 
 `status` was not supplied in the request. `tag_priority` set it during the workflow, and `notify_slack` read it when composing the Slack message. Steps share state through the lead object.
+
+The rule: a lead writing from a company address (`northwind.io` here) is `hot`; one writing from a free-mail provider such as Gmail, Outlook or Yahoo is `warm`. For a B2B team a company address is the stronger first signal, and it uses only what the form already sends.
 
 ---
 
@@ -176,7 +178,7 @@ cd leadflow
 
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # requirements.txt alone to only run the server
 
 cp .env.example .env
 # fill in ANTHROPIC_API_KEY and SLACK_WEBHOOK_URL
@@ -185,6 +187,8 @@ uvicorn main:app --reload
 ```
 
 Then open http://localhost:8000/docs.
+
+Run the tests with `pytest`. They run the workflow against an in-memory SQLite database with Claude and Slack stubbed, so they need no keys: the priority rule, a failing step keeping the lead and recording where it stopped, the draft receiving the priority, and a full successful run.
 
 Tables are created on startup. With no `DATABASE_URL` set, data goes to a local `leadflow.db` SQLite file.
 
@@ -229,7 +233,9 @@ These are known gaps, listed with their consequences.
 
 **No `GET /drafts` endpoint.** Drafts are readable only through direct database access. The Pydantic schema exists; the route does not.
 
-**Tests are manual.** Endpoints were exercised through the OpenAPI docs and failure paths through deliberate fault injection. There is no pytest suite.
+**The priority rule is a heuristic.** Someone at a real buyer can write from Gmail and be tagged `warm`, and a company domain says nothing about seniority. The tag orders the team's attention; it doesn't decide who gets a reply.
+
+**Endpoint tests are manual.** The workflow has a pytest suite; the HTTP endpoints were exercised through the OpenAPI docs.
 
 ---
 

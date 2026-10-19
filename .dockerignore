@@ -9,3 +9,6 @@ __pycache__/
 .DS_Store
 .vscode/
 
+tests/
+pytest.ini
+requirements-dev.txt

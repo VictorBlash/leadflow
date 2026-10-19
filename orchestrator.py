@@ -31,13 +31,22 @@ def log_lead(lead: Lead, db: Session) -> None:
     print(f"[log_lead] Lead {lead.id}: {lead.name} from {lead.company}")
 
 
+# Free-mail providers. Someone writing from one of these may still be a buyer,
+# but for a B2B team a company address is the stronger first signal.
+FREE_MAIL_DOMAINS = frozenset({
+    "gmail.com", "googlemail.com", "yahoo.com", "yahoo.co.uk", "ymail.com",
+    "outlook.com", "hotmail.com", "hotmail.co.uk", "live.com", "msn.com",
+    "aol.com", "icloud.com", "me.com", "mac.com", "proton.me", "protonmail.com",
+    "gmx.com", "mail.com", "zoho.com", "yandex.com",
+})
+
+
 def tag_priority(lead: Lead, db: Session) -> None:
-    if "ceo" in lead.name.lower() or "founder" in lead.name.lower():
-        lead.status = "hot"
-    else: 
-        lead.status = "warm"
+    """Tag the lead hot when it comes from a company address, warm from free mail."""
+    domain = lead.email.rsplit("@", 1)[-1].lower()
+    lead.status = "warm" if domain in FREE_MAIL_DOMAINS else "hot"
     db.commit()
-    
+
 
 def notify_slack(lead: Lead, db: Session ) -> None:
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
