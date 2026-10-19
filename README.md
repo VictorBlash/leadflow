@@ -171,7 +171,7 @@ SQLite locally, Postgres in production. `database.py` reads `DATABASE_URL` from 
 Requires Python 3.11 and an Anthropic API key. The Slack step needs an incoming webhook URL; without one that step fails and the run is marked failed, which is the intended behavior.
 
 ```bash
-git clone https://github.com/TerrellBlash/leadflow.git
+git clone https://github.com/VictorBlash/leadflow.git
 cd leadflow
 
 python3 -m venv .venv
@@ -235,7 +235,7 @@ These are known gaps, listed with their consequences.
 
 ## About
 
-Built by Victor Blash ([@TerrellBlash](https://github.com/TerrellBlash)) while moving from iOS development into AI and backend engineering. The patterns here, ordered execution with recorded state, failure isolation, environment-driven configuration, and versioned prompts, are the ones that carry over.
+Built by Victor Blash ([@VictorBlash](https://github.com/VictorBlash)) while moving from iOS development into AI and backend engineering. The patterns here, ordered execution with recorded state, failure isolation, environment-driven configuration, and versioned prompts, are the ones that carry over.
 
 Built step by step rather than generated, over seven phases from an empty folder to a deployed service.
 
