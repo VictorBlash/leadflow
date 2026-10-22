@@ -2,9 +2,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import APIRouter, Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session
 
+from auth import require_api_key
 from orchestrator import run_workflow
 from database import Base, SessionLocal, engine
 from models import Lead, WorkflowRun
@@ -17,6 +18,10 @@ Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+# Every route except /health requires X-API-Key. The docs routes (/docs,
+# /redoc, /openapi.json) are not router routes, so they stay public.
+protected = APIRouter(dependencies=[Depends(require_api_key)])
+
 
 def get_db():
     db = SessionLocal()
@@ -26,7 +31,7 @@ def get_db():
         db.close()
         
         
-@app.get("/")
+@protected.get("/")
 def root():
     return {
         "service": "leadflow",
@@ -40,7 +45,7 @@ def health():
     return {"status": "ok"}
 
 
-@app.post("/leads", response_model=LeadOut, status_code=201)
+@protected.post("/leads", response_model=LeadOut, status_code=201)
 def create_lead(payload: LeadIn, db: Session = Depends(get_db)):
     lead = Lead(name=payload.name, email=payload.email, company=payload.company)
     db.add(lead)
@@ -50,14 +55,17 @@ def create_lead(payload: LeadIn, db: Session = Depends(get_db)):
     return lead
 
 
-@app.get("/leads", response_model=list[LeadOut])
+@protected.get("/leads", response_model=list[LeadOut])
 def list_leads(db: Session = Depends(get_db)):
     return db.query(Lead).all()
 
 
-@app.get("/workflow_runs", response_model=list[WorkflowRunOut])
+@protected.get("/workflow_runs", response_model=list[WorkflowRunOut])
 def list_workflow_runs(db: Session = Depends(get_db)):
     return db.query(WorkflowRun).all()
+
+
+app.include_router(protected)
 
 
  
