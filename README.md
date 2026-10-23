@@ -1,4 +1,5 @@
 # leadflow
+[![CI](https://github.com/VictorBlash/leadflow/actions/workflows/ci.yml/badge.svg)](https://github.com/VictorBlash/leadflow/actions/workflows/ci.yml)
 
 A workflow automation backend that turns inbound lead webhooks into prioritized, AI-drafted follow-ups. A lead arrives, gets validated and stored, tagged by priority, given a draft outreach email written by Claude, and announced in Slack. Every step's execution state is recorded and queryable.
 

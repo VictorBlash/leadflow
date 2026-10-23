@@ -21,7 +21,7 @@ import database
 from database import Base
 from main import app, get_db
 
-API_KEY = "test-key-7f3a9c"
+API_KEY = "test-key-7f3a9c"  # gitleaks:allow
 
 HTTP_METHODS = {"get", "post", "put", "patch", "delete", "head", "options", "trace"}
 
