@@ -13,6 +13,12 @@ from models import Draft, Lead, WorkflowRun
 PROMPT_VERSION = "v1"
 DRAFT_MODEL = "claude-haiku-4-5-20251001"
 
+# The workflow runs inside the HTTP request, so the Claude call must be bounded.
+# A 300-token Haiku reply takes a few seconds; 20s per attempt plus one retry
+# caps the worst case at about 41s instead of the SDK default of 600s x 3.
+ANTHROPIC_TIMEOUT_SECONDS = 20.0
+ANTHROPIC_MAX_RETRIES = 1
+
 OUTREACH_PROMPT = """You are writing a short cold outreach email on behalf of a B2B software company.
 
 Lead details:
@@ -48,18 +54,26 @@ def tag_priority(lead: Lead, db: Session) -> None:
     db.commit()
 
 
+def slack_escape(text: str) -> str:
+    """Escape &, < and > so Slack shows the text as written, not as a mention or link."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def notify_slack(lead: Lead, db: Session ) -> None:
     webhook_url = os.environ.get("SLACK_WEBHOOK_URL")
     if not webhook_url:
         raise ValueError("SLACK_WEBHOOK_URL is not set")
 
-    message = f"New {lead.status} lead: {lead.name} from {lead.company} ({lead.email})"
+    message = (
+        f"New {lead.status} lead: {slack_escape(lead.name)} "
+        f"from {slack_escape(lead.company)} ({slack_escape(lead.email)})"
+    )
     response = requests.post(webhook_url, json={"text":message}, timeout=10)
     response.raise_for_status()    
     
 
 def draft_outreach(lead: Lead, db: Session) -> None:
-    client = Anthropic()
+    client = Anthropic(timeout=ANTHROPIC_TIMEOUT_SECONDS, max_retries=ANTHROPIC_MAX_RETRIES)
     
     prompt = OUTREACH_PROMPT.format(
         name=lead.name,
@@ -111,6 +125,9 @@ def run_workflow(lead: Lead, db: Session) -> WorkflowRun:
         db.refresh(run)
 
     except Exception as exc:
+        # A failed flush leaves the session unusable until rolled back. Steps
+        # before this one already committed, so only the failed step's writes go.
+        db.rollback()
         run.status = "failed"
         run.error_message = str(exc)
         run.finished_at = datetime.now(timezone.utc)

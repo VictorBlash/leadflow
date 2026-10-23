@@ -225,7 +225,7 @@ docker run -p 8000:8000 --env-file .env -e PORT=8000 leadflow
 
 These are known gaps, listed with their consequences.
 
-**The workflow blocks the HTTP response.** A slow or hanging Claude call delays the caller. At current volume this is a second of latency. Under load it would occupy workers and degrade the whole service. Moving step execution to a background task or a queue is the fix.
+**The workflow blocks the HTTP response.** A slow Claude call delays the caller. At current volume this is a second of latency. The Claude client has a 20-second timeout per attempt and retries once, so a hanging call holds the request for about 41 seconds at worst rather than indefinitely. Under load that would still occupy workers and degrade the whole service. Moving step execution to a background task or a queue is the fix.
 
 **Prompt v1 fabricates specifics.** Documented above. A v2 prompt exists as a plan, not as code, and no comparison between versions has been run. The drafts table makes that comparison possible; it has not been done.
 
@@ -233,7 +233,7 @@ These are known gaps, listed with their consequences.
 
 **No token or cost tracking.** Per-draft cost is a fraction of a cent, but the system does not record it. `max_tokens` caps response length, which caps the worst case per call and nothing more.
 
-**Retries do not exist.** A transient network failure permanently fails a run. There is no retry with backoff, and steps are not idempotent, so a naive retry could send a duplicate Slack message. Adding retries requires idempotency keys first.
+**Retries exist only for the Claude call.** The Anthropic SDK retries a failed or timed-out Claude request once, with backoff; that is safe because nothing is written until the call succeeds. No other step retries, so a transient network failure in the Slack post or the database permanently fails the run. Steps are not idempotent, so a naive retry of the whole run could send a duplicate Slack message. Wider retries require idempotency keys first.
 
 **Schema changes require dropping tables.** `Base.metadata.create_all()` creates missing tables and never alters existing ones. Adding a column to a table that already has data means dropping it. Alembic is the correct tool and is not installed.
 
@@ -251,5 +251,5 @@ These are known gaps, listed with their consequences.
 
 Built by Victor Blash ([@VictorBlash](https://github.com/VictorBlash)) while moving from iOS development into AI and backend engineering. The patterns here, ordered execution with recorded state, failure isolation, environment-driven configuration, and versioned prompts, are the ones that carry over.
 
-Built step by step rather than generated, over seven phases from an empty folder to a deployed service.
+Developed with AI assistance (Claude Code) over seven phases, from an empty folder to a deployed service. The design decisions and the limitations above are mine, and so are any mistakes.
 

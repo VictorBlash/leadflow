@@ -20,8 +20,8 @@ from sqlalchemy.pool import StaticPool
 
 import orchestrator
 from database import Base
-from models import Draft, Lead
-from orchestrator import run_workflow, tag_priority
+from models import Draft, Lead, WorkflowRun
+from orchestrator import draft_outreach, notify_slack, run_workflow, tag_priority
 
 
 @pytest.fixture
@@ -41,11 +41,13 @@ def add_lead(db, email="priya@northwind.io"):
 
 
 class FakeAnthropic:
-    """Records the prompt and returns a fixed email."""
+    """Records the client options and the prompt, and returns a fixed email."""
 
     prompts: list[str] = []
+    client_kwargs: list[dict] = []
 
-    def __init__(self):
+    def __init__(self, **kwargs):
+        FakeAnthropic.client_kwargs.append(kwargs)
         self.messages = self
 
     def create(self, model, max_tokens, messages):
@@ -56,6 +58,7 @@ class FakeAnthropic:
 @pytest.fixture
 def fake_claude(monkeypatch):
     FakeAnthropic.prompts = []
+    FakeAnthropic.client_kwargs = []
     monkeypatch.setattr(orchestrator, "Anthropic", FakeAnthropic)
     return FakeAnthropic
 
@@ -119,3 +122,50 @@ def test_a_full_run_completes_when_every_step_succeeds(db, fake_claude, monkeypa
 
     assert run.status == "completed"
     assert posted == [{"text": "New warm lead: Priya Raman from Northwind Systems (priya.raman@gmail.com)"}]
+
+
+def test_a_database_error_in_a_step_still_returns_a_recorded_failed_run(db, monkeypatch):
+    # A failed flush leaves the session unusable until it is rolled back. If
+    # run_workflow commits the failure without rolling back first, the commit
+    # raises and POST /leads returns 500 instead of the documented 201.
+    def bad_insert(lead, db):
+        db.add(Lead(name=None, email="x@example.com", company="X"))
+        db.commit()
+
+    monkeypatch.setattr(orchestrator, "WORKFLOW_STEPS", [("bad_insert", bad_insert)])
+    lead = add_lead(db)
+
+    run = run_workflow(lead, db)
+
+    assert run.status == "failed"
+    assert run.current_step == "bad_insert"
+    assert "NOT NULL" in run.error_message
+    db.expire_all()
+    assert db.get(WorkflowRun, run.id).status == "failed"
+    assert db.get(Lead, lead.id) is not None
+
+
+def test_the_claude_client_has_a_bounded_timeout_and_one_retry(db, fake_claude):
+    # The workflow runs inside the HTTP request. The SDK default waits up to
+    # 600 seconds per attempt over 3 attempts, which would hang the caller.
+    lead = add_lead(db)
+
+    draft_outreach(lead, db)
+
+    assert fake_claude.client_kwargs == [{"timeout": 20.0, "max_retries": 1}]
+
+
+def test_slack_text_escapes_lead_fields_so_they_cannot_trigger_mentions(db, monkeypatch):
+    # Name and company come from a public form. Unescaped, "<!channel>" would
+    # notify everyone in the channel.
+    posted = []
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.slack.example/test")
+    monkeypatch.setattr(orchestrator.requests, "post",
+                        lambda url, json, timeout: posted.append(json) or SimpleNamespace(raise_for_status=lambda: None))
+    lead = Lead(name="<!channel>", email="a&b@northwind.io", company="Smith & Sons <Ltd>", status="hot")
+    db.add(lead)
+    db.commit()
+
+    notify_slack(lead, db)
+
+    assert posted == [{"text": "New hot lead: &lt;!channel&gt; from Smith &amp; Sons &lt;Ltd&gt; (a&amp;b@northwind.io)"}]
